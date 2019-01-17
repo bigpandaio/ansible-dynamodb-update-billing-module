@@ -1,0 +1,112 @@
+#!/usr/bin/python
+import json
+from ansible.module_utils.basic import AnsibleModule
+try:
+    import boto3
+    BOTO_3_FOUND = True
+except ImportError:
+    BOTO_3_FOUND = False
+
+DOCUMENTATION = """
+---
+module: dynamodb_update_billing_mode
+short_description: Updates billing mode for DynamoDB tables
+description:
+  - Updates billing mode for DynamoDB tables
+  - Returns the status of the specified table.
+author: Erik Zaadi (@erikzaadi)
+requirements:
+  - "boto3 >= 1.4.4
+options:
+  table_name:
+    description:
+      - The name of the DynamoDB table to update
+    required: True
+  region:
+    description:
+      - AWS Region to work on
+    required: true
+  billing_mode:
+    description:
+      - Billing mode to ensure is set on table
+    required: True
+    choices: ['PROVISIONED', 'PAY_PER_REQUEST']
+"""
+
+EXAMPLES = '''
+# Update dynamo db table to pay per request billing mode
+- dynamodb_update_billing_mode:
+    name: my-table
+    region: us-east-1
+    billing_mode: 'PAY_PER_REQUEST'
+
+# Update dynamo db table to provisioned billing mode
+- dynamodb_update_billing_mode:
+    name: my-table
+    region: us-east-1
+    billing_mode: 'PAY_PER_REQUEST'
+
+'''
+
+RETURN = '''
+table_status:
+    description: The current status of the table.
+    returned: success
+    type: str
+    sample: ACTIVE
+'''
+
+
+def main():
+    module = AnsibleModule(
+            argument_spec=dict(
+                table_name=dict(required=True, type='String')
+                region=dict(required=True, type='String')
+                billing_mode=dict(
+                    required=True,
+                    default='PROVISIONED',
+                    choices=['PAY_PER_REQUEST', 'PROVISIONED']
+                    ),
+                )
+            )
+
+    if not BOTO_3_FOUND:
+        module.fail_json(msg="This module requires the boto3 module")
+
+    table_name = module.params['dynamodb_table_name']
+    region = module.params['dynamodb_region']
+    billing_mode = module.params['dynamodb_billing_mode']
+
+    dynamodb = boto3.client('dynamodb', region_name=region)
+
+    try:
+        table_description = dynamodb.describe_table(
+            TableName=table_name
+            )
+        if table_description \
+            .get('BillingModeSummary', {}) \
+                .get('BillingMode', None) == billing_mode:
+            return module.exit_json(
+                changed=False
+                )
+    except Exception as e:
+        return module.fail_json(
+                error=e,
+                msg="Failed verifying dynamo db table billing mode"
+                )
+
+    try:
+        table = dynamodb.update_table(
+                TableName=table_name,
+                BillingMode=billing_mode
+                )
+    except Exception as e:
+        return module.fail_json(
+                error=e,
+                msg="Failed updating dynamo db table billing mode"
+                )
+
+    module.exit_json(
+        changed=True,
+        status=table.table_status
+        )
